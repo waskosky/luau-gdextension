@@ -5,6 +5,8 @@
 #include "luau.h"
 #include "lua_compileoptions.h"
 
+#include <cstdint>
+
 using namespace gdluau;
 using namespace godot;
 
@@ -188,10 +190,10 @@ TEST_SUITE("Luau")
 
         // Sleep briefly to ensure time advances
         // (use busy wait to avoid platform-specific sleep functions)
-        volatile int dummy = 0;
+        volatile std::uint64_t dummy = 0;
         for (int i = 0; i < 1000000; i++)
         {
-            dummy += i;
+            dummy += static_cast<std::uint64_t>(i);
         }
 
         double t2 = Luau::clock();
