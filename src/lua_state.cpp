@@ -211,7 +211,6 @@ static int callable_metamethod_wrapper(lua_State *L)
     if (status != LUA_OK)
     {
         lua_error(L);
-        return 0;
     }
 
     return lua_gettop(L);
