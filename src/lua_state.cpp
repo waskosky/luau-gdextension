@@ -17,19 +17,92 @@
 #include <godot_cpp/core/object.hpp>
 #include <godot_cpp/templates/local_vector.hpp>
 #include <lualib.h>
+#include <algorithm>
+#include <chrono>
+#include <cstddef>
+#include <cstdlib>
+#include <limits>
+
+// GDLUAU_HARDENED_PATCH_V1: tracked allocator and protected watchdog paths.
 
 using namespace gdluau;
 using namespace godot;
+
+namespace
+{
+    struct alignas(std::max_align_t) LuaAllocationHeader
+    {
+        size_t size;
+    };
+
+    static void *tracked_lua_allocator(void *ud, void *ptr, size_t, size_t nsize)
+    {
+        LuaAllocatorState *state = static_cast<LuaAllocatorState *>(ud);
+        if (!state)
+        {
+            return nullptr;
+        }
+
+        LuaAllocationHeader *old_header = ptr ? (static_cast<LuaAllocationHeader *>(ptr) - 1) : nullptr;
+        const size_t old_size = old_header ? old_header->size : 0;
+
+        if (nsize == 0)
+        {
+            if (old_header)
+            {
+                state->current_bytes = old_size <= state->current_bytes ? state->current_bytes - old_size : 0;
+                std::free(old_header);
+            }
+            return nullptr;
+        }
+
+        if (nsize > std::numeric_limits<size_t>::max() - sizeof(LuaAllocationHeader))
+        {
+            state->limit_hit = true;
+            return nullptr;
+        }
+
+        const size_t base_bytes = old_size <= state->current_bytes ? state->current_bytes - old_size : 0;
+        // Always permit a shrink. Growth or a new allocation must fit under
+        // the limit, including when the caller lowered the limit below current usage.
+        if (state->limit_bytes > 0 && nsize > old_size &&
+            (base_bytes > state->limit_bytes || nsize > state->limit_bytes - base_bytes))
+        {
+            state->limit_hit = true;
+            return nullptr;
+        }
+
+        void *raw = std::realloc(old_header, sizeof(LuaAllocationHeader) + nsize);
+        if (!raw)
+        {
+            return nullptr;
+        }
+
+        LuaAllocationHeader *new_header = static_cast<LuaAllocationHeader *>(raw);
+        new_header->size = nsize;
+        state->current_bytes = base_bytes + nsize;
+        state->peak_bytes = std::max(state->peak_bytes, state->current_bytes);
+        return new_header + 1;
+    }
+
+    static uint64_t monotonic_usec()
+    {
+        using namespace std::chrono;
+        return static_cast<uint64_t>(duration_cast<microseconds>(steady_clock::now().time_since_epoch()).count());
+    }
+}
 
 static void callback_interrupt(lua_State *L, int gc)
 {
     LuaState *state = LuaState::find_lua_state(L);
     if (!state)
     {
-        return;
+        state = LuaState::find_lua_state(lua_mainthread(L));
     }
-
-    state->emit_signal(static_strings->interrupt, state, gc);
+    if (state)
+    {
+        state->handle_interrupt(L, gc);
+    }
 }
 
 // This handler is called when Lua encounters an unprotected error.
@@ -132,8 +205,14 @@ static int callable_metamethod_wrapper(lua_State *L)
     lua_pushvalue(L, lua_upvalueindex(1));
     lua_insert(L, 1);
 
-    // Invoke Callable.__call with original arguments
-    lua_call(L, nargs, LUA_MULTRET);
+    // Invoke Callable.__call behind a protected boundary. If it fails,
+    // rethrow only after lua_pcall has returned normally through this C++ frame.
+    int status = lua_pcall(L, nargs, LUA_MULTRET, 0);
+    if (status != LUA_OK)
+    {
+        lua_error(L);
+        return 0;
+    }
 
     return lua_gettop(L);
 }
@@ -265,6 +344,17 @@ void LuaState::_bind_methods()
     // Memory statistics
     ClassDB::bind_method(D_METHOD("set_memory_category", "category"), &LuaState::set_memory_category);
     ClassDB::bind_method(D_METHOD("get_total_bytes", "category"), &LuaState::get_total_bytes);
+    ClassDB::bind_method(D_METHOD("set_memory_limit_bytes", "limit_bytes"), &LuaState::set_memory_limit_bytes);
+    ClassDB::bind_method(D_METHOD("get_memory_limit_bytes"), &LuaState::get_memory_limit_bytes);
+    ClassDB::bind_method(D_METHOD("get_memory_bytes"), &LuaState::get_memory_bytes);
+    ClassDB::bind_method(D_METHOD("get_peak_memory_bytes"), &LuaState::get_peak_memory_bytes);
+    ClassDB::bind_method(D_METHOD("did_hit_memory_limit"), &LuaState::did_hit_memory_limit);
+    ClassDB::bind_method(D_METHOD("clear_memory_limit_hit"), &LuaState::clear_memory_limit_hit);
+    ClassDB::bind_method(D_METHOD("start_timeout_usec", "timeout_usec", "poll_stride"), &LuaState::start_timeout_usec, DEFVAL(64));
+    ClassDB::bind_method(D_METHOD("clear_timeout"), &LuaState::clear_timeout);
+    ClassDB::bind_method(D_METHOD("did_timeout"), &LuaState::did_timeout);
+    ClassDB::bind_method(D_METHOD("set_interrupt_signal_stride", "stride"), &LuaState::set_interrupt_signal_stride);
+    ClassDB::bind_method(D_METHOD("get_interrupt_signal_stride"), &LuaState::get_interrupt_signal_stride);
 
     // Miscellaneous functions
     ClassDB::bind_method(D_METHOD("error"), &LuaState::error);
@@ -377,8 +467,20 @@ void LuaState::_bind_methods()
     ADD_SIGNAL(MethodInfo("debugstep", PropertyInfo(Variant::OBJECT, "state", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_DEFAULT, "LuaState")));
 }
 
-LuaState::LuaState() : LuaState(luaL_newstate())
+LuaState::LuaState()
+    : L(nullptr), allocator_state(memnew(LuaAllocatorState)), owns_allocator_state(true)
 {
+    L = lua_newstate(tracked_lua_allocator, allocator_state);
+    if (!L)
+    {
+        memdelete(allocator_state);
+        allocator_state = nullptr;
+        owns_allocator_state = false;
+        ERR_FAIL_MSG("Could not allocate a Luau state.");
+    }
+
+    lua_setthreaddata(L, this);
+    setup_vm();
 }
 
 LuaState::LuaState(lua_State *p_L)
@@ -394,7 +496,7 @@ LuaState::LuaState(lua_State *p_L)
 
 // Private constructor for thread states
 LuaState::LuaState(lua_State *p_thread_L, const Ref<LuaState> &p_main_thread)
-    : L(p_thread_L), main_thread(p_main_thread)
+    : L(p_thread_L), main_thread(p_main_thread), allocator_state(p_main_thread->allocator_state)
 {
     ERR_FAIL_NULL_MSG(p_thread_L, "Thread lua_State* is null.");
     ERR_FAIL_COND_MSG(!p_main_thread.is_valid(), "Main LuaState is not valid.");
@@ -417,6 +519,44 @@ void LuaState::setup_vm()
     callbacks->useratom = create_atom;
     callbacks->debugbreak = callback_debugbreak;
     callbacks->debugstep = callback_debugstep;
+    refresh_interrupt_callback();
+}
+
+void LuaState::refresh_interrupt_callback()
+{
+    LuaState *owner = get_main_thread_ptr();
+    if (!owner || !owner->L)
+    {
+        return;
+    }
+
+    lua_Callbacks *callbacks = lua_callbacks(owner->L);
+    callbacks->interrupt = (owner->interrupt_signal_enabled || owner->interrupt_deadline_usec != 0) ? callback_interrupt : nullptr;
+}
+
+void LuaState::handle_interrupt(lua_State *p_running_state, int p_gc_state)
+{
+    LuaState *owner = get_main_thread_ptr();
+    if (!owner)
+    {
+        return;
+    }
+
+    const uint64_t callback_count = ++owner->interrupt_callback_count;
+    const uint32_t poll_stride = std::max<uint32_t>(1, owner->interrupt_poll_stride);
+    if (owner->interrupt_deadline_usec != 0 && callback_count % poll_stride == 0 && monotonic_usec() >= owner->interrupt_deadline_usec)
+    {
+        owner->timeout_hit = true;
+        owner->interrupt_deadline_usec = 0;
+        luaL_error(p_running_state, "Luau execution exceeded its monotonic deadline");
+        return;
+    }
+
+    const uint32_t signal_stride = std::max<uint32_t>(1, owner->interrupt_signal_stride);
+    if (owner->interrupt_signal_enabled && callback_count % signal_stride == 0)
+    {
+        emit_signal(static_strings->interrupt, this, p_gc_state);
+    }
 }
 
 Ref<LuaState> LuaState::bind_thread(lua_State *p_thread_L)
@@ -442,14 +582,21 @@ void LuaState::close()
 
     lua_setthreaddata(L, nullptr);
 
-    if (is_main_thread())
+    const bool was_main_thread = is_main_thread();
+    if (was_main_thread)
     {
-        // Only close the main thread
-        // This will invalidate all thread lua_State* pointers created from this state
+        // Only close the main thread. The allocator state must remain alive
+        // until lua_close has released every VM allocation.
         lua_close(L);
     }
 
     L = nullptr;
+    if (was_main_thread && owns_allocator_state && allocator_state)
+    {
+        memdelete(allocator_state);
+        allocator_state = nullptr;
+        owns_allocator_state = false;
+    }
 }
 
 Ref<LuaState> LuaState::new_thread()
@@ -1323,6 +1470,53 @@ uint64_t LuaState::get_total_bytes(int p_category)
     return lua_totalbytes(L, p_category);
 }
 
+void LuaState::set_memory_limit_bytes(int64_t p_limit_bytes)
+{
+    ERR_FAIL_COND_MSG(p_limit_bytes < 0, "Memory limit cannot be negative.");
+    LuaState *owner = get_main_thread_ptr();
+    ERR_FAIL_NULL_MSG(owner, "Main Lua state is unavailable.");
+    ERR_FAIL_NULL_MSG(owner->allocator_state, "This Lua state does not use the tracked allocator.");
+    owner->allocator_state->limit_bytes = static_cast<size_t>(p_limit_bytes);
+    owner->allocator_state->limit_hit = false;
+}
+
+int64_t LuaState::get_memory_limit_bytes() const
+{
+    const LuaState *owner = get_main_thread_ptr();
+    return owner && owner->allocator_state ? static_cast<int64_t>(owner->allocator_state->limit_bytes) : 0;
+}
+
+int64_t LuaState::get_memory_bytes() const
+{
+    const LuaState *owner = get_main_thread_ptr();
+    if (owner && owner->allocator_state)
+    {
+        return static_cast<int64_t>(owner->allocator_state->current_bytes);
+    }
+    return owner && owner->L ? static_cast<int64_t>(lua_totalbytes(owner->L, 0)) : 0;
+}
+
+int64_t LuaState::get_peak_memory_bytes() const
+{
+    const LuaState *owner = get_main_thread_ptr();
+    return owner && owner->allocator_state ? static_cast<int64_t>(owner->allocator_state->peak_bytes) : get_memory_bytes();
+}
+
+bool LuaState::did_hit_memory_limit() const
+{
+    const LuaState *owner = get_main_thread_ptr();
+    return owner && owner->allocator_state && owner->allocator_state->limit_hit;
+}
+
+void LuaState::clear_memory_limit_hit()
+{
+    LuaState *owner = get_main_thread_ptr();
+    if (owner && owner->allocator_state)
+    {
+        owner->allocator_state->limit_hit = false;
+    }
+}
+
 // Miscellaneous functions
 void LuaState::error()
 {
@@ -1571,13 +1765,64 @@ void LuaState::set_interrupts(bool p_enabled)
 {
     ERR_FAIL_COND_MSG(!is_valid(), "Lua state is invalid. Cannot set interrupts.");
 
+    LuaState *owner = get_main_thread_ptr();
+    ERR_FAIL_NULL_MSG(owner, "Main Lua state is unavailable.");
     if (!is_main_thread())
     {
         WARN_PRINT("LuaState.set_interrupts() called on a non-main Lua thread, but will affect all threads.");
     }
 
-    lua_Callbacks *callbacks = lua_callbacks(L);
-    callbacks->interrupt = p_enabled ? callback_interrupt : nullptr;
+    owner->interrupt_signal_enabled = p_enabled;
+    owner->interrupt_callback_count = 0;
+    owner->refresh_interrupt_callback();
+}
+
+void LuaState::start_timeout_usec(int64_t p_timeout_usec, int p_poll_stride)
+{
+    ERR_FAIL_COND_MSG(!is_valid(), "Lua state is invalid. Cannot start a timeout.");
+    ERR_FAIL_COND_MSG(p_timeout_usec <= 0, "Timeout must be greater than zero microseconds.");
+    ERR_FAIL_COND_MSG(p_poll_stride <= 0, "Interrupt poll stride must be positive.");
+
+    LuaState *owner = get_main_thread_ptr();
+    ERR_FAIL_NULL_MSG(owner, "Main Lua state is unavailable.");
+    const uint64_t now = monotonic_usec();
+    const uint64_t timeout = static_cast<uint64_t>(p_timeout_usec);
+    owner->interrupt_deadline_usec = timeout > std::numeric_limits<uint64_t>::max() - now ? std::numeric_limits<uint64_t>::max() : now + timeout;
+    owner->interrupt_poll_stride = static_cast<uint32_t>(std::min(p_poll_stride, 1'000'000));
+    owner->interrupt_callback_count = 0;
+    owner->timeout_hit = false;
+    owner->refresh_interrupt_callback();
+}
+
+void LuaState::clear_timeout()
+{
+    LuaState *owner = get_main_thread_ptr();
+    if (!owner)
+    {
+        return;
+    }
+    owner->interrupt_deadline_usec = 0;
+    owner->refresh_interrupt_callback();
+}
+
+bool LuaState::did_timeout() const
+{
+    const LuaState *owner = get_main_thread_ptr();
+    return owner && owner->timeout_hit;
+}
+
+void LuaState::set_interrupt_signal_stride(int p_stride)
+{
+    ERR_FAIL_COND_MSG(p_stride <= 0, "Interrupt signal stride must be positive.");
+    LuaState *owner = get_main_thread_ptr();
+    ERR_FAIL_NULL_MSG(owner, "Main Lua state is unavailable.");
+    owner->interrupt_signal_stride = static_cast<uint32_t>(std::min(p_stride, 1'000'000));
+}
+
+int LuaState::get_interrupt_signal_stride() const
+{
+    const LuaState *owner = get_main_thread_ptr();
+    return owner ? static_cast<int>(owner->interrupt_signal_stride) : 0;
 }
 
 int LuaState::set_breakpoint(int p_funcindex, int p_nline, bool p_enabled)
@@ -1617,25 +1862,24 @@ void LuaState::register_library(const StringName &p_lib_name, const Dictionary &
     ERR_FAIL_COND_MSG(!is_valid(), "Lua state is invalid. Cannot register library.");
     ERR_FAIL_COND_MSG(!lua_checkstack(L, 3), vformat("LuaState.register_library(%s): Stack overflow. Cannot grow stack.", p_lib_name));
 
-    // We need to partially reimplement luaL_register, since bridging Callables to lua_CFunctions without userdata is not really possible
-
-    if (!p_lib_name.is_empty())
+    if (p_lib_name.is_empty())
     {
-        // First, reuse the annoying bits of logic around table creation and registration
-        luaL_Reg reg[] = {
-            {NULL, NULL} // sentinel
-        };
+        ERR_FAIL_COND_MSG(lua_gettop(L) == 0 || !lua_istable(L, -1),
+                          "LuaState.register_library(): An empty library name requires a table on top of the stack.");
+    }
+    else
+    {
+        luaL_Reg reg[] = {{NULL, NULL}};
         luaL_register(L, char_string(p_lib_name).get_data(), reg);
     }
 
-    // Table is now at the top of the stack; populate it with the provided functions
+    const int target_index = lua_absindex(L, -1);
     for (const Variant &key : p_functions.keys())
     {
         const Variant &value = p_functions[key];
-
         ::push_variant(L, key);
         ::push_variant(L, value);
-        lua_settable(L, -3);
+        lua_rawset(L, target_index);
     }
 }
 
@@ -1643,9 +1887,21 @@ bool LuaState::get_meta_field(int p_index, const StringName &p_field)
 {
     ERR_FAIL_COND_V_MSG(!is_valid(), false, "Lua state is invalid. Cannot get meta field.");
     ERR_FAIL_COND_V_MSG(!is_valid_index(p_index), false, vformat("LuaState.get_meta_field(%d, \"%s\"): Invalid stack index. Stack has %d elements.", p_index, p_field, lua_gettop(L)));
-    ERR_FAIL_COND_V_MSG(!lua_checkstack(L, 1), false, vformat("LuaState.get_meta_field(%d, \"%s\"): Stack overflow. Cannot grow stack.", p_index, p_field));
+    ERR_FAIL_COND_V_MSG(!lua_checkstack(L, 2), false, vformat("LuaState.get_meta_field(%d, \"%s\"): Stack overflow. Cannot grow stack.", p_index, p_field));
 
-    return luaL_getmetafield(L, p_index, char_string(p_field).get_data()) != 0;
+    if (!lua_getmetatable(L, p_index))
+    {
+        return false;
+    }
+
+    lua_rawgetfield(L, -1, char_string(p_field).get_data());
+    lua_remove(L, -2);
+    if (lua_isnil(L, -1))
+    {
+        lua_pop(L, 1);
+        return false;
+    }
+    return true;
 }
 
 bool LuaState::call_meta(int p_index, const StringName &p_field)
@@ -1653,7 +1909,22 @@ bool LuaState::call_meta(int p_index, const StringName &p_field)
     ERR_FAIL_COND_V_MSG(!is_valid(), false, "Lua state is invalid. Cannot call meta method.");
     ERR_FAIL_COND_V_MSG(!is_valid_index(p_index), false, vformat("LuaState.call_meta(%d, \"%s\"): Invalid stack index. Stack has %d elements.", p_index, p_field, lua_gettop(L)));
 
-    return luaL_callmeta(L, p_index, char_string(p_field).get_data()) != 0;
+    const int value_index = lua_absindex(L, p_index);
+    if (!get_meta_field(value_index, p_field))
+    {
+        return false;
+    }
+
+    lua_pushvalue(L, value_index);
+    const int status = lua_pcall(L, 1, 1, 0);
+    if (status != LUA_OK)
+    {
+        const char *error_message = lua_tostring(L, -1);
+        ERR_PRINT(vformat("LuaState.call_meta(): protected metamethod call failed: %s", error_message ? error_message : "unknown error"));
+        lua_pop(L, 1);
+        return false;
+    }
+    return true;
 }
 
 void LuaState::type_error(int p_index, const StringName &p_expected)
@@ -2129,7 +2400,16 @@ Ref<LuaState> LuaState::find_or_create_lua_state(lua_State *p_L)
 // C++ only helpers
 void LuaState::open_library(lua_CFunction func, const char *name)
 {
+    ERR_FAIL_COND_MSG(!is_valid(), "Lua state is invalid. Cannot open library.");
+    ERR_FAIL_COND_MSG(!lua_checkstack(L, 2), "Lua stack overflow while opening library.");
+
     lua_pushcfunction(L, func, name);
     lua_pushstring(L, name);
-    lua_call(L, 1, 0);
+    const int status = lua_pcall(L, 1, 0, 0);
+    if (status != LUA_OK)
+    {
+        const char *error_message = lua_tostring(L, -1);
+        ERR_PRINT(vformat("Failed to open Luau library '%s': %s", name, error_message ? error_message : "unknown error"));
+        lua_pop(L, 1);
+    }
 }

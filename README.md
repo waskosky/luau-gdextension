@@ -250,3 +250,11 @@ The demo showcases:
 ## License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+
+<!-- GDLUAU_HARDENED_PATCH_V1 -->
+## Hardened runtime profiles
+
+The optional hardening overlay adds a tracked memory allocator, monotonic
+execution deadlines, a persistent batched trusted runtime, and a restricted
+fresh-VM runner for untrusted source. See [`docs/HARDENING.md`](docs/HARDENING.md)
+and the scripts under `addons/luau_gdextension/runtime/`.

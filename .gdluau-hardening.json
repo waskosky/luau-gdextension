@@ -1,0 +1,17 @@
+{
+  "base_commit": "bc1b88da7121a6b049094a5eebc7e5b359bc8ac3",
+  "bundle": "luau-gdextension-hardened-consolidated",
+  "files_added": [
+    ".github/workflows/hardening-release.yml",
+    ".github/workflows/hardening-sanitizers.yml",
+    "addons/luau_gdextension/runtime/batched_luau_runtime.gd",
+    "addons/luau_gdextension/runtime/sandboxed_luau_runner.gd",
+    "docs/HARDENING.md",
+    "docs/ROBLOX_PORTING.md",
+    "hardening/smoke/",
+    "hardening/benchmark/",
+    "tests/test_hardening.cpp",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "patch_id": "gdluau-hardening-v1"
+}

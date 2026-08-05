@@ -9,6 +9,10 @@ cmake_policy(SET CMP0091 NEW)
 project(gdluau)
 include(FetchContent)
 
+# GDLUAU_HARDENED_PATCH_V1: explicit release optimization and optional IPO.
+option(GDLUAU_HARDENED_BUILD "Enable hardened runtime build settings" ON)
+option(GDLUAU_ENABLE_IPO "Enable interprocedural optimization for Release builds" ON)
+
 # Configure ccache if available
 find_program(CCACHE_PROGRAM ccache)
 if(CCACHE_PROGRAM)
@@ -81,6 +85,26 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     Luau.Compiler
     Luau.VM
 )
+
+if(GDLUAU_HARDENED_BUILD)
+    target_compile_definitions(${PROJECT_NAME}_core PRIVATE GDLUAU_HARDENED_BUILD=1)
+    if(MSVC)
+        target_compile_options(${PROJECT_NAME}_core PRIVATE $<$<CONFIG:Release>:/O2> $<$<CONFIG:Release>:/Ob3>)
+    else()
+        target_compile_options(${PROJECT_NAME}_core PRIVATE $<$<CONFIG:Release>:-O3>)
+    endif()
+
+    if(GDLUAU_ENABLE_IPO)
+        include(CheckIPOSupported)
+        check_ipo_supported(RESULT GDLUAU_IPO_SUPPORTED OUTPUT GDLUAU_IPO_ERROR)
+        if(GDLUAU_IPO_SUPPORTED)
+            set_property(TARGET ${PROJECT_NAME}_core PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+            set_property(TARGET ${PROJECT_NAME} PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+        else()
+            message(WARNING "IPO/LTO is unavailable: ${GDLUAU_IPO_ERROR}")
+        endif()
+    endif()
+endif()
 
 # Generate documentation source and add to target
 file(GLOB_RECURSE DOC_XML "${CMAKE_CURRENT_SOURCE_DIR}/doc_classes/*.xml")

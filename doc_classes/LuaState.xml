@@ -2235,6 +2235,56 @@
 				[/codeblock]
 			</description>
 		</method>
+
+		<!-- GDLUAU_HARDENED_PATCH_V1 -->
+		<method name="set_memory_limit_bytes">
+			<return type="void" />
+			<param index="0" name="limit_bytes" type="int" />
+			<description>Sets a VM-wide allocation ceiling in bytes. A value of zero disables the ceiling.</description>
+		</method>
+		<method name="get_memory_limit_bytes" qualifiers="const">
+			<return type="int" />
+			<description>Returns the configured VM-wide allocation ceiling, or zero when unlimited.</description>
+		</method>
+		<method name="get_memory_bytes" qualifiers="const">
+			<return type="int" />
+			<description>Returns the bytes currently tracked by this VM's allocator.</description>
+		</method>
+		<method name="get_peak_memory_bytes" qualifiers="const">
+			<return type="int" />
+			<description>Returns the peak bytes observed by this VM's allocator.</description>
+		</method>
+		<method name="did_hit_memory_limit" qualifiers="const">
+			<return type="bool" />
+			<description>Returns whether an allocation has been rejected by the configured ceiling.</description>
+		</method>
+		<method name="clear_memory_limit_hit">
+			<return type="void" />
+			<description>Clears the memory-limit diagnostic flag without changing the limit.</description>
+		</method>
+		<method name="start_timeout_usec">
+			<return type="void" />
+			<param index="0" name="timeout_usec" type="int" />
+			<param index="1" name="poll_stride" type="int" default="64" />
+			<description>Starts a monotonic execution deadline enforced by the Luau interrupt callback.</description>
+		</method>
+		<method name="clear_timeout">
+			<return type="void" />
+			<description>Disables the active execution deadline while preserving its diagnostic flag.</description>
+		</method>
+		<method name="did_timeout" qualifiers="const">
+			<return type="bool" />
+			<description>Returns whether the most recent deadline interrupted execution.</description>
+		</method>
+		<method name="set_interrupt_signal_stride">
+			<return type="void" />
+			<param index="0" name="stride" type="int" />
+			<description>Throttles optional Godot interrupt signals to one emission per stride callbacks.</description>
+		</method>
+		<method name="get_interrupt_signal_stride" qualifiers="const">
+			<return type="int" />
+			<description>Returns the optional interrupt signal emission stride.</description>
+		</method>
 	</methods>
 	<signals>
 		<signal name="debugbreak">

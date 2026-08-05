@@ -1,0 +1,61 @@
+name: Hardened Sanitizers
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: hardening-sanitizers-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  asan-ubsan:
+    runs-on: ubuntu-latest
+    env:
+      ASAN_OPTIONS: detect_leaks=1:halt_on_error=1:strict_string_checks=1
+      UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up CMake
+        uses: lukka/get-cmake@4169813123dd72674c1697fc8f2554818db4c92b
+
+      - name: Install Godot
+        shell: bash
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/godot.zip" \
+            "https://github.com/godotengine/godot/releases/download/4.6.2-stable/Godot_v4.6.2-stable_linux.x86_64.zip"
+          unzip -q "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP/godot"
+          chmod +x "$RUNNER_TEMP/godot/Godot_v4.6.2-stable_linux.x86_64"
+          echo "GODOT_EXECUTABLE=$RUNNER_TEMP/godot/Godot_v4.6.2-stable_linux.x86_64" >> "$GITHUB_ENV"
+          echo "LD_PRELOAD=$(gcc -print-file-name=libasan.so)" >> "$GITHUB_ENV"
+
+      - name: Configure with AddressSanitizer and UndefinedBehaviorSanitizer
+        shell: bash
+        run: |
+          cmake --preset linux-x86_64-debug \
+            -DGDLUAU_HARDENED_BUILD=ON \
+            -DGDLUAU_ENABLE_IPO=OFF \
+            '-DCMAKE_C_FLAGS_DEBUG=-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer' \
+            '-DCMAKE_CXX_FLAGS_DEBUG=-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer' \
+            '-DCMAKE_SHARED_LINKER_FLAGS_DEBUG=-fsanitize=address,undefined'
+
+      - name: Build
+        shell: bash
+        run: cmake --build --preset linux-x86_64-debug -j 2
+
+      - name: Native tests under sanitizers
+        shell: bash
+        run: ctest --preset linux-x86_64-debug
+
+      - name: Smoke tests under sanitizers
+        shell: bash
+        run: |
+          python3 hardening/scripts/sync_smoke_addon.py --repo .
+          "$GODOT_EXECUTABLE" --headless --path hardening/smoke

@@ -1,0 +1,81 @@
+name: Hardened Release Builds
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: hardening-release-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  release:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x86-64 Release
+            os: windows-latest
+            preset: windows-x86_64-release
+            godot_asset: Godot_v4.6.2-stable_win64.exe.zip
+            godot_binary: Godot_v4.6.2-stable_win64.exe
+          - name: Linux x86-64 Release
+            os: ubuntu-latest
+            preset: linux-x86_64-release
+            godot_asset: Godot_v4.6.2-stable_linux.x86_64.zip
+            godot_binary: Godot_v4.6.2-stable_linux.x86_64
+          - name: macOS ARM64 Release
+            os: macos-latest
+            preset: macos-arm64-release
+            godot_asset: Godot_v4.6.2-stable_macos.universal.zip
+            godot_binary: Godot.app/Contents/MacOS/Godot
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up CMake
+        uses: lukka/get-cmake@4169813123dd72674c1697fc8f2554818db4c92b
+
+      - name: Install Godot
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/godot.zip" \
+            "https://github.com/godotengine/godot/releases/download/4.6.2-stable/${{ matrix.godot_asset }}"
+          unzip -q "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP/godot"
+          echo "GODOT_EXECUTABLE=$RUNNER_TEMP/godot/${{ matrix.godot_binary }}" >> "$GITHUB_ENV"
+          chmod +x "$RUNNER_TEMP/godot/${{ matrix.godot_binary }}" || true
+
+      - name: Configure
+        run: cmake --preset "${{ matrix.preset }}" -DGDLUAU_HARDENED_BUILD=ON -DGDLUAU_ENABLE_IPO=ON
+
+      - name: Build
+        run: cmake --build --preset "${{ matrix.preset }}" -j 2
+
+      - name: Native tests
+        run: ctest --preset "${{ matrix.preset }}"
+
+      - name: Prepare standalone projects
+        run: python3 hardening/scripts/sync_smoke_addon.py --repo .
+
+      - name: Hardened smoke tests
+        run: '"$GODOT_EXECUTABLE" --headless --path hardening/smoke'
+
+      - name: Comparative benchmark
+        run: '"$GODOT_EXECUTABLE" --headless --path hardening/benchmark'
+
+      - name: Upload addon
+        uses: actions/upload-artifact@v4
+        with:
+          name: luau-gdextension-hardened-${{ matrix.preset }}
+          path: addons/luau_gdextension/**
+          if-no-files-found: error

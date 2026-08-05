@@ -1,5 +1,9 @@
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
+
+// GDLUAU_HARDENED_PATCH_V1: bounded allocator and monotonic watchdog.
 #include <godot_cpp/classes/ref_counted.hpp>
 #include <godot_cpp/core/binder_common.hpp>
 #include <lua.h>
@@ -9,6 +13,14 @@
 namespace gdluau
 {
     using namespace godot;
+
+    struct LuaAllocatorState
+    {
+        size_t current_bytes = 0;
+        size_t peak_bytes = 0;
+        size_t limit_bytes = 0; // 0 means unlimited
+        bool limit_hit = false;
+    };
 
     class LuaDebug;
 
@@ -20,6 +32,16 @@ namespace gdluau
         lua_State *L;
         Ref<LuaState> main_thread; // only set for non-main threads
 
+        LuaAllocatorState *allocator_state = nullptr;
+        bool owns_allocator_state = false;
+
+        bool interrupt_signal_enabled = false;
+        uint64_t interrupt_callback_count = 0;
+        uint64_t interrupt_deadline_usec = 0;
+        uint32_t interrupt_poll_stride = 64;
+        uint32_t interrupt_signal_stride = 1024;
+        bool timeout_hit = false;
+
         // Private constructor for main thread
         LuaState(lua_State *p_L);
 
@@ -28,6 +50,7 @@ namespace gdluau
 
         Ref<LuaState> bind_thread(lua_State *p_thread_L);
         void setup_vm();
+        void refresh_interrupt_callback();
 
         bool is_valid_index(int p_index);
 
@@ -204,6 +227,19 @@ namespace gdluau
         // Memory statistics
         void set_memory_category(int p_category);
         uint64_t get_total_bytes(int p_category);
+        void set_memory_limit_bytes(int64_t p_limit_bytes);
+        int64_t get_memory_limit_bytes() const;
+        int64_t get_memory_bytes() const;
+        int64_t get_peak_memory_bytes() const;
+        bool did_hit_memory_limit() const;
+        void clear_memory_limit_hit();
+
+        // Monotonic execution deadlines and throttled interrupt signals
+        void start_timeout_usec(int64_t p_timeout_usec, int p_poll_stride = 64);
+        void clear_timeout();
+        bool did_timeout() const;
+        void set_interrupt_signal_stride(int p_stride);
+        int get_interrupt_signal_stride() const;
 
         // Miscellaneous functions
         void error(); // [[noreturn]] unless state is invalid
@@ -304,6 +340,18 @@ namespace gdluau
         {
             return L;
         }
+
+        LuaState *get_main_thread_ptr()
+        {
+            return is_main_thread() ? this : main_thread.ptr();
+        }
+
+        const LuaState *get_main_thread_ptr() const
+        {
+            return is_main_thread() ? this : main_thread.ptr();
+        }
+
+        void handle_interrupt(lua_State *p_running_state, int p_gc_state);
 
         static LuaState *find_lua_state(lua_State *p_L)
         {
