@@ -36,10 +36,10 @@ jobs:
       matrix:
         include:
           - preset: windows-x86_64-debug
-            os: windows-latest
+            os: windows-2022
             name: 🏁 Windows Debug
           - preset: windows-x86_64-release
-            os: windows-latest
+            os: windows-2022
             name: 🏁 Windows Release
           - preset: macos-arm64-debug
             os: macos-latest
