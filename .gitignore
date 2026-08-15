@@ -12,6 +12,9 @@ _deps
 CMakeUserPresets.json
 build/
 bin/
+deps/
+__pycache__/
+*.pyc
 .claude/*.local.json
 .godot/
 

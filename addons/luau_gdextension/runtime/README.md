@@ -1,11 +1,13 @@
-# Runtime wrappers
+# Luau runtime wrappers
 
-- `BatchedLuauRuntime` is for trusted, first-party gameplay modules. It keeps one
-  VM alive, compiles once, and makes coarse calls with compact payloads.
-- `SandboxedLuauRunner` is for untrusted source. It creates a fresh VM per run,
-  omits OS/debug/Godot libraries, freezes the environment, limits memory and
-  time, validates input, and permits only conservative return types.
+Production code should use the native `LuauPackageRuntime` class through the
+Godot-light `rai.runtime.luau/v1` capability. It maintains one trusted,
+data-only Luau virtual machine per active experience scope and accepts a locked
+logical module map.
 
-Do not pass Nodes, Resources, Callables, RIDs, Signals, or arbitrary Godot
-Variants into `SandboxedLuauRunner`. Do not add `LIB_GODOT`, `LIB_OS`, or
-`LIB_DEBUG` to its library mask.
+`LuauSandboxRunner` always creates a fresh virtual machine for one call. It has
+smaller source, memory, payload, and deadline limits and never shares state with
+trusted gameplay sessions.
+
+The older GDScript wrappers remain as migration examples only. They must not be
+used as evidence that the native binary is present or production-ready.

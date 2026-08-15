@@ -5,6 +5,7 @@
 
 // GDLUAU_HARDENED_PATCH_V1: bounded allocator and monotonic watchdog.
 #include <godot_cpp/classes/ref_counted.hpp>
+#include <godot_cpp/classes/ref.hpp>
 #include <godot_cpp/core/binder_common.hpp>
 #include <lua.h>
 

@@ -108,16 +108,14 @@ TEST_SUITE("Luau")
 
     TEST_CASE_FIXTURE(RawLuaStateFixture, "compile - with compile options")
     {
-        LuaCompileOptions *options = memnew(LuaCompileOptions);
+        Ref<LuaCompileOptions> options = memnew(LuaCompileOptions);
         options->set_optimization_level(2);
         options->set_debug_level(2);
 
         String code = "return 42";
-        PackedByteArray bytecode = Luau::compile(code, options);
+        PackedByteArray bytecode = Luau::compile(code, options.ptr());
 
         CHECK(bytecode.size() > 0);
-
-        memdelete(options);
 
         // Verify bytecode is executable
         int result = luau_load(L, "test", (const char *)bytecode.ptr(), bytecode.size(), 0);
