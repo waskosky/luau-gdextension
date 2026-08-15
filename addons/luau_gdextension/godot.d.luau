@@ -161,3 +161,18 @@ declare PackedColorArray: ((array: {[number]: Color}?) -> PackedColorArray)
 declare class PackedVector4Array
 end
 declare PackedVector4Array: ((array: {[number]: Vector4}?) -> PackedVector4Array)
+
+declare class LuauPackageRuntime
+    configure: (self: LuauPackageRuntime, limits: {[string]: any}) -> {[string]: any}
+    load_modules: (self: LuauPackageRuntime, modules: {[string]: string}, entrypoint: string) -> {[string]: any}
+    activate: (self: LuauPackageRuntime, context: {[string]: any}) -> {[string]: any}
+    handle_event: (self: LuauPackageRuntime, event: {[string]: any}) -> {[string]: any}
+    snapshot: (self: LuauPackageRuntime) -> {[string]: any}
+    deactivate: (self: LuauPackageRuntime) -> {[string]: any}
+    close: (self: LuauPackageRuntime) -> ()
+    metrics: (self: LuauPackageRuntime) -> {[string]: any}
+end
+
+declare class LuauSandboxRunner
+    run: (self: LuauSandboxRunner, source: string, input: any, limits: {[string]: any}?) -> {[string]: any}
+end

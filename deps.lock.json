@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "rai.native-dependencies.v1",
+  "dependencies": {
+    "godot-cpp": {
+      "repository": "https://github.com/godotengine/godot-cpp.git",
+      "commit": "d7b6162249ed52796a8301d216c24ee71d68c2bf",
+      "godotApiVersion": "4.7"
+    },
+    "luau": {
+      "repository": "https://github.com/luau-lang/luau.git",
+      "commit": "ca128af4c531310d6f5c1b354df4b79fdd782ede",
+      "release": "0.733"
+    }
+  }
+}

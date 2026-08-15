@@ -3,6 +3,8 @@
 #include "lua_compileoptions.h"
 #include "lua_debug.h"
 #include "lua_state.h"
+#include "luau_package_runtime.h"
+#include "luau_sandbox_runner.h"
 #include "luau.h"
 #include "luau_script.h"
 #include "static_strings.h"
@@ -60,6 +62,8 @@ void initialize_gdluau(ModuleInitializationLevel p_level)
     GDREGISTER_RUNTIME_CLASS(LuauScript);
     GDREGISTER_RUNTIME_CLASS(ResourceFormatLoaderLuauScript);
     GDREGISTER_RUNTIME_CLASS(ResourceFormatSaverLuauScript);
+    GDREGISTER_CLASS(rai::luau::LuauPackageRuntime);
+    GDREGISTER_CLASS(rai::luau::LuauSandboxRunner);
 
     // Register resource loader and saver for .lua and .luau files
     resource_loader_luau.instantiate();

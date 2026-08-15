@@ -9,6 +9,11 @@ cmake_policy(SET CMP0091 NEW)
 project(gdluau)
 include(FetchContent)
 
+# Static Luau and object-library inputs are linked into GDExtension modules.
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+set(GODOTCPP_API_VERSION "4.7" CACHE STRING "Godot extension API version")
+
 # GDLUAU_HARDENED_PATCH_V1: explicit release optimization and optional IPO.
 option(GDLUAU_HARDENED_BUILD "Enable hardened runtime build settings" ON)
 option(GDLUAU_ENABLE_IPO "Enable interprocedural optimization for Release builds" ON)
@@ -31,13 +36,23 @@ set(LUAU_STATIC_CRT OFF)  # Use dynamic runtime (/MD or /MDd) to match godot-cpp
 FetchContent_Declare(
     Luau
     GIT_REPOSITORY https://github.com/luau-lang/luau.git
-    GIT_TAG 0.719
+    GIT_TAG ca128af4c531310d6f5c1b354df4b79fdd782ede
 )
 FetchContent_Declare(
     GodotCpp
     GIT_REPOSITORY https://github.com/godotengine/godot-cpp.git
-    GIT_TAG godot-4.5-stable
+    GIT_TAG d7b6162249ed52796a8301d216c24ee71d68c2bf
 )
+
+# Release scripts materialize exact dependency checkouts from deps.lock.json.
+# Preserve FetchContent as the developer fallback while preferring those
+# audited local inputs when present.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/deps/luau/CMakeLists.txt")
+    set(FETCHCONTENT_SOURCE_DIR_LUAU "${CMAKE_CURRENT_SOURCE_DIR}/deps/luau")
+endif()
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/deps/godot-cpp/CMakeLists.txt")
+    set(FETCHCONTENT_SOURCE_DIR_GODOTCPP "${CMAKE_CURRENT_SOURCE_DIR}/deps/godot-cpp")
+endif()
 FetchContent_MakeAvailable(Luau GodotCpp)
 
 # Import GodotCPP module for documentation generation
@@ -56,6 +71,16 @@ target_compile_features(${PROJECT_NAME}_core PRIVATE
 )
 target_include_directories(${PROJECT_NAME}_core PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+# Luau is an exact-pinned third-party dependency. Treat its public headers as
+# system headers so the extension's warnings-as-errors policy remains focused
+# on code owned by this repository.
+target_include_directories(${PROJECT_NAME}_core SYSTEM PRIVATE
+    ${luau_SOURCE_DIR}/Ast/include
+    ${luau_SOURCE_DIR}/Bytecode/include
+    ${luau_SOURCE_DIR}/Common/include
+    ${luau_SOURCE_DIR}/Compiler/include
+    ${luau_SOURCE_DIR}/VM/include
 )
 target_link_libraries(${PROJECT_NAME}_core PRIVATE
     godot-cpp
@@ -115,8 +140,12 @@ add_dependencies(${PROJECT_NAME} generate_doc_source)
 
 string(TOLOWER ${CMAKE_SYSTEM_NAME} PLATFORM_NAME)
 string(TOLOWER ${CMAKE_SYSTEM_PROCESSOR} ARCH_NAME)
+set(GDLUAU_OUTPUT_NAME "gdluau.${PLATFORM_NAME}.${ARCH_NAME}")
+if(GDLUAU_GODOT_TARGET_DEBUG)
+    string(APPEND GDLUAU_OUTPUT_NAME ".debug")
+endif()
 set_target_properties(${PROJECT_NAME} PROPERTIES
-    OUTPUT_NAME "gdluau.${PLATFORM_NAME}.${ARCH_NAME}"
+    OUTPUT_NAME "${GDLUAU_OUTPUT_NAME}"
     SUFFIX ".${LIBRARY_SUFFIX}"
 )
 

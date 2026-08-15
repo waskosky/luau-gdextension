@@ -270,7 +270,6 @@ void LuaState::_bind_methods()
     ClassDB::bind_method(D_METHOD("to_integer", "index"), &LuaState::to_integer);
     ClassDB::bind_method(D_METHOD("to_vector3", "index"), &LuaState::to_vector3);
     ClassDB::bind_method(D_METHOD("to_boolean", "index"), &LuaState::to_boolean);
-    ClassDB::bind_method(D_METHOD("to_string", "index"), &LuaState::to_string);
     ClassDB::bind_method(D_METHOD("to_string_inplace", "index"), &LuaState::to_string_inplace);
     ClassDB::bind_method(D_METHOD("to_string_name", "index"), &LuaState::to_string_name);
     ClassDB::bind_method(D_METHOD("get_namecall"), &LuaState::get_namecall);
@@ -560,9 +559,7 @@ void LuaState::handle_interrupt(lua_State *p_running_state, int p_gc_state)
 
 Ref<LuaState> LuaState::bind_thread(lua_State *p_thread_L)
 {
-    Ref<LuaState> state;
-    state.reference_ptr(memnew(LuaState(p_thread_L, get_main_thread())));
-    return state;
+    return memnew(LuaState(p_thread_L, get_main_thread()));
 }
 
 bool LuaState::is_valid_index(int p_index)
@@ -1668,8 +1665,7 @@ Ref<LuaDebug> LuaState::get_info(int p_level, const String &p_what)
 {
     ERR_FAIL_COND_V_MSG(!is_valid(), Ref<LuaDebug>(), "Lua state is invalid. Cannot get debug info.");
 
-    Ref<LuaDebug> debug_info;
-    debug_info.reference_ptr(memnew(LuaDebug));
+    Ref<LuaDebug> debug_info = memnew(LuaDebug);
     if (lua_getinfo(L, p_level, p_what.utf8().get_data(), debug_info->ptrw()))
     {
         return debug_info;
@@ -2384,12 +2380,12 @@ Ref<LuaState> LuaState::find_or_create_lua_state(lua_State *p_L)
         lua_State *main_thread_L = lua_mainthread(p_L);
         if (p_L == main_thread_L)
         {
-            state.reference_ptr(memnew(LuaState(p_L)));
+            state = memnew(LuaState(p_L));
         }
         else
         {
             Ref<LuaState> main_thread_state = LuaState::find_or_create_lua_state(main_thread_L);
-            state.reference_ptr(memnew(LuaState(p_L, main_thread_state)));
+            state = memnew(LuaState(p_L, main_thread_state));
         }
     }
 

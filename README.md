@@ -1,6 +1,6 @@
 # Luau GDExtension
 
-Godot 4.5+ GDExtension to integrate the [Luau](https://luau.org/) scripting
+Godot 4.7 GDExtension to integrate the [Luau](https://luau.org/) scripting
 language (a high-performance Lua derivative) into Godot Engine.
 
 **📖 Documentation:** Full API reference is available in Godot's built-in help system. Search for `LuaState`, `Luau`, or `LuauScript` in the editor, or browse the XML files in [`doc_classes/`](doc_classes/).
@@ -16,7 +16,9 @@ integration into games:
 - **Safety**: Built-in sandboxing capabilities for running untrusted code
 - **Modern Features**: Native vector type, improved string library, buffer API
 
-This extension is currently built against Luau 0.719, though the API only exposes features available from Luau 0.696 and earlier. (No specific reason, we just need to review the changelog!)
+The release build pins Luau 0.733 and the Godot 4.7 C++ bindings by exact
+commits in [`deps.lock.json`](deps.lock.json). The general scripting API remains
+available alongside the restricted experience-package runtime described below.
 
 ## Quick Start
 
@@ -258,3 +260,24 @@ The optional hardening overlay adds a tracked memory allocator, monotonic
 execution deadlines, a persistent batched trusted runtime, and a restricted
 fresh-VM runner for untrusted source. See [`docs/HARDENING.md`](docs/HARDENING.md)
 and the scripts under `addons/luau_gdextension/runtime/`.
+
+## Experience-package runtime
+
+`LuauPackageRuntime` adds one persistent, bounded VM for repository-reviewed
+portable gameplay modules. `LuauSandboxRunner` creates a fresh smaller VM for a
+single restricted call. Both accept and return plain data only; they expose no
+Godot objects, callables, files, sockets, operating-system APIs, debug APIs, or
+dynamic loading.
+
+Reproduce the pinned native build with:
+
+```bash
+python3 scripts/bootstrap_dependencies.py
+python3 scripts/verify_dependencies.py
+python3 scripts/build.py --target template_debug --build-type Release
+```
+
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md),
+[`docs/SECURITY.md`](docs/SECURITY.md), and
+[`docs/BUILD_AND_RELEASE.md`](docs/BUILD_AND_RELEASE.md) for the package-host
+contract and release gates.
