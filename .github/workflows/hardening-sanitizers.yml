@@ -42,7 +42,7 @@ jobs:
             -DGDLUAU_HARDENED_BUILD=ON \
             -DGDLUAU_ENABLE_IPO=OFF \
             '-DCMAKE_C_FLAGS_DEBUG=-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer' \
-            '-DCMAKE_CXX_FLAGS_DEBUG=-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer' \
+            '-DCMAKE_CXX_FLAGS_DEBUG=-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -DASAN_ENABLED -DUBSAN_ENABLED' \
             '-DCMAKE_SHARED_LINKER_FLAGS_DEBUG=-fsanitize=address,undefined'
 
       - name: Build

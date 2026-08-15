@@ -46,3 +46,18 @@ def test_no_native_binary_is_claimed_in_source_bundle() -> None:
         if raw_path and (path := Path(raw_path.decode())).suffix.lower() in binary_suffixes
     ]
     assert binaries == []
+
+
+def test_hardened_build_flags_match_dependency_contracts() -> None:
+    sanitizer_workflow = (
+        ROOT / ".github/workflows/hardening-sanitizers.yml"
+    ).read_text()
+    assert "-DASAN_ENABLED -DUBSAN_ENABLED" in sanitizer_workflow
+
+    presets = json.loads((ROOT / "CMakePresets.json").read_text())
+    windows = next(
+        preset
+        for preset in presets["configurePresets"]
+        if preset["name"] == "windows-x86_64"
+    )
+    assert "/wd4714" in windows["cacheVariables"]["WARNING_FLAGS"].split(";")
