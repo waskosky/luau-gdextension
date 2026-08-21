@@ -16,6 +16,11 @@ def main() -> int:
     parser.add_argument("--build-type", choices=("Debug", "Release", "RelWithDebInfo"), default="Release")
     parser.add_argument("--build-dir", type=Path)
     parser.add_argument("--arch", choices=("x86_64", "arm64"))
+    parser.add_argument(
+        "--without-script-resource-formats",
+        action="store_true",
+        help="Keep native runtime classes but do not register .lua/.luau as Godot resources",
+    )
     parser.add_argument("--parallel", type=int, default=0)
     args = parser.parse_args()
     build_dir = (args.build_dir or ROOT / "build" / args.target).resolve()
@@ -31,6 +36,8 @@ def main() -> int:
         f"-DLIBRARY_SUFFIX={suffixes[system]}",
         "-DBUILD_TESTING=OFF",
         f"-DGDLUAU_GODOT_TARGET_DEBUG={'ON' if args.target != 'template_release' else 'OFF'}",
+        "-DGDLUAU_REGISTER_SCRIPT_RESOURCE_FORMATS="
+        + ("OFF" if args.without_script_resource_formats else "ON"),
     ]
     if args.arch:
         if system != "Darwin":
