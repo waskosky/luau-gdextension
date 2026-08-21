@@ -17,6 +17,11 @@ set(GODOTCPP_API_VERSION "4.7" CACHE STRING "Godot extension API version")
 # GDLUAU_HARDENED_PATCH_V1: explicit release optimization and optional IPO.
 option(GDLUAU_HARDENED_BUILD "Enable hardened runtime build settings" ON)
 option(GDLUAU_ENABLE_IPO "Enable interprocedural optimization for Release builds" ON)
+option(
+    GDLUAU_REGISTER_SCRIPT_RESOURCE_FORMATS
+    "Register .lua/.luau as Godot ResourceLoader and ResourceSaver formats"
+    ON
+)
 
 # Configure ccache if available
 find_program(CCACHE_PROGRAM ccache)
@@ -87,6 +92,15 @@ target_link_libraries(${PROJECT_NAME}_core PRIVATE
     Luau.Compiler
     Luau.VM
 )
+if(GDLUAU_REGISTER_SCRIPT_RESOURCE_FORMATS)
+    target_compile_definitions(${PROJECT_NAME}_core PRIVATE
+        GDLUAU_REGISTER_SCRIPT_RESOURCE_FORMATS=1
+    )
+else()
+    target_compile_definitions(${PROJECT_NAME}_core PRIVATE
+        GDLUAU_REGISTER_SCRIPT_RESOURCE_FORMATS=0
+    )
+endif()
 
 # Apply custom warnings (only to our source files)
 set_source_files_properties(

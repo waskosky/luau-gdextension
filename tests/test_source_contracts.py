@@ -60,6 +60,16 @@ def test_godot_47_static_singleton_shutdown_is_null_safe() -> None:
     )
 
 
+def test_data_only_hosts_can_disable_script_resource_imports_at_build_time() -> None:
+    register_types = (ROOT / "src/register_types.cpp").read_text()
+    cmake = (ROOT / "CMakeLists.txt").read_text()
+    build_script = (ROOT / "scripts/build.py").read_text()
+    assert "GDLUAU_REGISTER_SCRIPT_RESOURCE_FORMATS" in register_types
+    assert "GDLUAU_REGISTER_SCRIPT_RESOURCE_FORMATS" in cmake
+    assert "--without-script-resource-formats" in build_script
+    assert "if (script_resource_formats_registered)" in register_types
+
+
 def test_no_native_binary_is_claimed_in_source_bundle() -> None:
     binary_suffixes = {".so", ".dll", ".dylib", ".a", ".lib"}
     tracked = subprocess.run(

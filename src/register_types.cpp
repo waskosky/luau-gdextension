@@ -22,6 +22,10 @@
 using namespace gdluau;
 using namespace godot;
 
+#ifndef GDLUAU_REGISTER_SCRIPT_RESOURCE_FORMATS
+#define GDLUAU_REGISTER_SCRIPT_RESOURCE_FORMATS 1
+#endif
+
 static int assertionHandler(const char *expr, const char *file, int line, const char *function)
 {
     ERR_PRINT(vformat("Luau assertion failed: %s, function %s, file %s, line %d", expr, function, file, line));
@@ -38,6 +42,7 @@ static int assertionHandler(const char *expr, const char *file, int line, const 
 
 static Ref<ResourceFormatLoaderLuauScript> resource_loader_luau;
 static Ref<ResourceFormatSaverLuauScript> resource_saver_luau;
+static bool script_resource_formats_registered = false;
 
 namespace
 {
@@ -92,12 +97,18 @@ void initialize_gdluau(ModuleInitializationLevel p_level)
     GDREGISTER_CLASS(rai::luau::LuauPackageRuntime);
     GDREGISTER_CLASS(rai::luau::LuauSandboxRunner);
 
-    // Register resource loader and saver for .lua and .luau files
-    resource_loader_luau.instantiate();
-    ResourceLoader::get_singleton()->add_resource_format_loader(resource_loader_luau);
+    // Register resource loader and saver for .lua and .luau files. Data-only
+    // hosts can disable this while retaining the native package runtime, which
+    // keeps portable modules out of Godot's editor import/UID pipeline.
+    script_resource_formats_registered = GDLUAU_REGISTER_SCRIPT_RESOURCE_FORMATS != 0;
+    if (script_resource_formats_registered)
+    {
+        resource_loader_luau.instantiate();
+        ResourceLoader::get_singleton()->add_resource_format_loader(resource_loader_luau);
 
-    resource_saver_luau.instantiate();
-    ResourceSaver::get_singleton()->add_resource_format_saver(resource_saver_luau);
+        resource_saver_luau.instantiate();
+        ResourceSaver::get_singleton()->add_resource_format_saver(resource_saver_luau);
+    }
 }
 
 void uninitialize_gdluau(ModuleInitializationLevel p_level)
@@ -108,11 +119,15 @@ void uninitialize_gdluau(ModuleInitializationLevel p_level)
     }
 
     // Unregister resource loader and saver
-    ResourceLoader::get_singleton()->remove_resource_format_loader(resource_loader_luau);
-    resource_loader_luau.unref();
+    if (script_resource_formats_registered)
+    {
+        ResourceLoader::get_singleton()->remove_resource_format_loader(resource_loader_luau);
+        resource_loader_luau.unref();
 
-    ResourceSaver::get_singleton()->remove_resource_format_saver(resource_saver_luau);
-    resource_saver_luau.unref();
+        ResourceSaver::get_singleton()->remove_resource_format_saver(resource_saver_luau);
+        resource_saver_luau.unref();
+        script_resource_formats_registered = false;
+    }
 
     // Godot 4.7 exposes ClassDB as a static singleton. When godot-cpp resolves
     // the parent of an engine class that was dead-stripped from its static

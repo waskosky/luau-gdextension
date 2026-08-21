@@ -47,6 +47,13 @@ Release validation also opens and closes a real Godot editor project. This
 guards the Godot 4.7 static `ClassDB` shutdown path exercised when the resource
 saver receives an engine resource type such as `PackedScene`; standalone game
 smokes alone do not cover that lifecycle.
+
+Hosts that use only `LuauPackageRuntime` for data-only portable modules may
+build with `scripts/build.py --without-script-resource-formats`. Native Luau
+classes remain available, while `.lua` and `.luau` files are not registered as
+Godot editor resources and therefore do not acquire editor-generated UID
+sidecars. The build default remains enabled for projects that use `LuauScript`
+assets.
 A successful C++ compilation without those engine tests is not a release gate.
 
 ## Release receipt
