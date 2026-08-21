@@ -12,6 +12,7 @@
 
 #include <gdextension_interface.h>
 #include <godot_cpp/core/defs.hpp>
+#include <godot_cpp/core/gdextension_interface_loader.hpp>
 #include <godot_cpp/godot.hpp>
 #include <godot_cpp/classes/engine_debugger.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
@@ -37,6 +38,32 @@ static int assertionHandler(const char *expr, const char *file, int line, const 
 
 static Ref<ResourceFormatLoaderLuauScript> resource_loader_luau;
 static Ref<ResourceFormatSaverLuauScript> resource_saver_luau;
+
+namespace
+{
+GDExtensionInterfaceObjectFreeInstanceBinding object_free_instance_binding_unchecked = nullptr;
+
+void object_free_instance_binding_if_valid(GDExtensionObjectPtr p_object, void *p_token)
+{
+    if (p_object != nullptr && object_free_instance_binding_unchecked != nullptr)
+    {
+        object_free_instance_binding_unchecked(p_object, p_token);
+    }
+}
+
+void install_null_instance_binding_shutdown_guard()
+{
+    GDExtensionInterfaceObjectFreeInstanceBinding &free_instance_binding =
+        godot::gdextension_interface::object_free_instance_binding;
+    if (free_instance_binding == object_free_instance_binding_if_valid)
+    {
+        return;
+    }
+
+    object_free_instance_binding_unchecked = free_instance_binding;
+    free_instance_binding = object_free_instance_binding_if_valid;
+}
+} // namespace
 
 void initialize_gdluau(ModuleInitializationLevel p_level)
 {
@@ -86,6 +113,16 @@ void uninitialize_gdluau(ModuleInitializationLevel p_level)
 
     ResourceSaver::get_singleton()->remove_resource_format_saver(resource_saver_luau);
     resource_saver_luau.unref();
+
+    // Godot 4.7 exposes ClassDB as a static singleton. When godot-cpp resolves
+    // the parent of an engine class that was dead-stripped from its static
+    // archive (PackedScene is a common editor example), it caches a wrapper
+    // whose underlying Godot object is intentionally null. Its generic core
+    // shutdown path otherwise passes that null owner to
+    // object_free_instance_binding and crashes. Install the guard only for the
+    // remaining shutdown phases; ordinary non-null binding cleanup is still
+    // delegated to Godot unchanged.
+    install_null_instance_binding_shutdown_guard();
 
     // Cleanup statics
     uninitialize_string_cache();

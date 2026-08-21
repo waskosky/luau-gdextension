@@ -70,6 +70,9 @@ jobs:
       - name: Hardened smoke tests
         run: '"$GODOT_EXECUTABLE" --headless --path hardening/smoke'
 
+      - name: Editor load and shutdown smoke
+        run: '"$GODOT_EXECUTABLE" --headless --editor --quit --path hardening/smoke'
+
       - name: Comparative benchmark
         run: '"$GODOT_EXECUTABLE" --headless --path hardening/benchmark'
 

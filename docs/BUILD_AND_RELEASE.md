@@ -42,6 +42,11 @@ godot --headless --path ../godot-light-main \
 ```
 
 Then run the experience-package smoke test and portable conformance vectors.
+
+Release validation also opens and closes a real Godot editor project. This
+guards the Godot 4.7 static `ClassDB` shutdown path exercised when the resource
+saver receives an engine resource type such as `PackedScene`; standalone game
+smokes alone do not cover that lifecycle.
 A successful C++ compilation without those engine tests is not a release gate.
 
 ## Release receipt
