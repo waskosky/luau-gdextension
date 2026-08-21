@@ -15,6 +15,7 @@ def main() -> int:
     parser.add_argument("--target", choices=("template_debug", "template_release", "editor"), default="template_debug")
     parser.add_argument("--build-type", choices=("Debug", "Release", "RelWithDebInfo"), default="Release")
     parser.add_argument("--build-dir", type=Path)
+    parser.add_argument("--arch", choices=("x86_64", "arm64"))
     parser.add_argument("--parallel", type=int, default=0)
     args = parser.parse_args()
     build_dir = (args.build_dir or ROOT / "build" / args.target).resolve()
@@ -31,6 +32,13 @@ def main() -> int:
         "-DBUILD_TESTING=OFF",
         f"-DGDLUAU_GODOT_TARGET_DEBUG={'ON' if args.target != 'template_release' else 'OFF'}",
     ]
+    if args.arch:
+        if system != "Darwin":
+            parser.error("--arch is currently supported only for macOS builds")
+        configure += [
+            f"-DCMAKE_OSX_ARCHITECTURES={args.arch}",
+            f"-DGDLUAU_ARCH_NAME={args.arch}",
+        ]
     subprocess.run(configure, check=True)
     command = ["cmake", "--build", str(build_dir), "--target", "gdluau"]
     if system == "Windows":

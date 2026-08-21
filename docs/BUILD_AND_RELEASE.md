@@ -16,6 +16,11 @@ python3 scripts/build.py --target template_debug --build-type RelWithDebInfo
 python3 scripts/build.py --target template_release --build-type Release
 ```
 
+On macOS, `--arch x86_64` and `--arch arm64` select both the compiler target
+and the architecture-qualified library name. Never install an unqualified
+macOS library: Godot must select the matching host architecture from the
+extension descriptor.
+
 Build every declared operating system and architecture on a matching host or
 approved cross-compilation runner. Do not rename a library without changing
 `addons/luau_gdextension/luau.gdextension` and the release inventory together.

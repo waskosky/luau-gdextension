@@ -10,6 +10,7 @@ from pathlib import Path
 
 DEBUG_BINARY_ALIASES = {
     "libgdluau.linux.x86_64.so": "libgdluau.linux.x86_64.debug.so",
+    "libgdluau.darwin.x86_64.dylib": "libgdluau.darwin.x86_64.debug.dylib",
     "libgdluau.darwin.arm64.dylib": "libgdluau.darwin.arm64.debug.dylib",
     "gdluau.windows.amd64.dll": "gdluau.windows.amd64.debug.dll",
 }

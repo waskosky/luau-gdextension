@@ -29,7 +29,25 @@ def test_runtime_has_bounded_data_only_surface() -> None:
 def test_extension_declares_only_supported_desktop_targets() -> None:
     descriptor = (ROOT / "addons/luau_gdextension/luau.gdextension").read_text()
     assert "linux." in descriptor and "windows." in descriptor and "macos." in descriptor
+    for target in ("debug", "release"):
+        assert f"macos.{target}.x86_64" in descriptor
+        assert f"macos.{target}.arm64" in descriptor
     assert "web." not in descriptor and "android." not in descriptor and "ios." not in descriptor
+
+
+def test_cross_architecture_builds_control_the_output_tag() -> None:
+    build_script = (ROOT / "scripts/build.py").read_text()
+    cmake = (ROOT / "CMakeLists.txt").read_text()
+    assert 'choices=("x86_64", "arm64")' in build_script
+    assert "-DCMAKE_OSX_ARCHITECTURES=" in build_script
+    assert "-DGDLUAU_ARCH_NAME=" in build_script
+    assert 'set(GDLUAU_ARCH_NAME "" CACHE STRING' in cmake
+
+
+def test_standalone_smoke_supports_intel_macos_release_alias() -> None:
+    sync_script = (ROOT / "hardening/scripts/sync_smoke_addon.py").read_text()
+    assert '"libgdluau.darwin.x86_64.dylib"' in sync_script
+    assert '"libgdluau.darwin.x86_64.debug.dylib"' in sync_script
 
 
 def test_no_native_binary_is_claimed_in_source_bundle() -> None:
